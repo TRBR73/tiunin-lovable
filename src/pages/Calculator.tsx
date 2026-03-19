@@ -93,6 +93,9 @@ const Calculator = () => {
   // Realization cost sliders (per m²)
   const [workCost, setWorkCost] = useState(0);
   const [materialCost, setMaterialCost] = useState(0);
+  // Additional sliders for house: renovation work + interior materials
+  const [renovationWorkCost, setRenovationWorkCost] = useState(0);
+  const [interiorMaterialCost, setInteriorMaterialCost] = useState(0);
 
   // Initialize slider defaults when objectType changes
   const workConfig = objectType === "house" ? WORK_COSTS.construction : WORK_COSTS.renovation;
@@ -101,9 +104,6 @@ const Calculator = () => {
     : MATERIAL_COSTS.residential;
 
   // Reset sliders to mean when object type changes
-  const workKey = objectType === "house" ? "construction" : "renovation";
-  const matKey = objectType === "house" ? "house" : objectType === "commercial" ? "commercial" : "residential";
-
   useEffect(() => {
     if (objectType) {
       const wc = objectType === "house" ? WORK_COSTS.construction : WORK_COSTS.renovation;
@@ -112,6 +112,13 @@ const Calculator = () => {
         : MATERIAL_COSTS.residential;
       setWorkCost(wc.mean);
       setMaterialCost(mc.mean);
+      if (objectType === "house") {
+        setRenovationWorkCost(WORK_COSTS.renovation.mean);
+        setInteriorMaterialCost(MATERIAL_COSTS.residential.mean);
+      } else {
+        setRenovationWorkCost(0);
+        setInteriorMaterialCost(0);
+      }
     }
   }, [objectType]);
 
@@ -125,7 +132,7 @@ const Calculator = () => {
   const canNext = step === 1 ? objectType !== null : true;
 
   const calc = useMemo(() => {
-    if (!objectType) return { design: 0, arch: 0, mgmt: 0, realization: 0, workTotal: 0, materialTotal: 0, total: 0, grandTotal: 0, k: 1 };
+    if (!objectType) return { design: 0, arch: 0, mgmt: 0, realization: 0, workTotal: 0, materialTotal: 0, renovationWorkTotal: 0, interiorMaterialTotal: 0, total: 0, grandTotal: 0, k: 1 };
     const tariff = TARIFFS[objectType];
     let k = BASE_K[objectType];
     if (replanning) k += 0.15;
@@ -137,17 +144,19 @@ const Calculator = () => {
     const arch = architectureProject && objectType === "house" ? area * tariff.architecture * k : 0;
     const workTotal = area * workCost;
     const materialTotal = area * materialCost;
-    const realization = workTotal + materialTotal;
+    const renovationWorkTotal = objectType === "house" ? area * renovationWorkCost : 0;
+    const interiorMaterialTotal = objectType === "house" ? area * interiorMaterialCost : 0;
+    const realization = workTotal + materialTotal + renovationWorkTotal + interiorMaterialTotal;
     const mgmt = management ? realization * 0.06 : 0;
     const total = design + arch + mgmt;
     const grandTotal = total + realization;
-    return { design, arch, mgmt, realization, workTotal, materialTotal, total, grandTotal, k };
-  }, [objectType, area, designProject, architectureProject, management, replanning, ventilation, smartHome, urgent, workCost, materialCost]);
+    return { design, arch, mgmt, realization, workTotal, materialTotal, renovationWorkTotal, interiorMaterialTotal, total, grandTotal, k };
+  }, [objectType, area, designProject, architectureProject, management, replanning, ventilation, smartHome, urgent, workCost, materialCost, renovationWorkCost, interiorMaterialCost]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const params = { objectType, area, designProject, architectureProject, management, replanning, ventilation, smartHome, urgent, workCost, materialCost, realization: calc.realization, estimate: calc.total };
+    const params = { objectType, area, designProject, architectureProject, management, replanning, ventilation, smartHome, urgent, workCost, materialCost, renovationWorkCost, interiorMaterialCost, realization: calc.realization, estimate: calc.total };
     const { error } = await supabase.from("leads").insert({
       name,
       email,
@@ -200,14 +209,26 @@ const Calculator = () => {
             </div>
             {calc.workTotal > 0 && (
               <div className="flex justify-between items-baseline">
-                <span className="text-sm text-muted-foreground">Работы</span>
+                <span className="text-sm text-muted-foreground">{objectType === "house" ? "Работы (строительство)" : "Работы"}</span>
                 <span className="text-sm font-medium">{formatPrice(calc.workTotal)}</span>
               </div>
             )}
             {calc.materialTotal > 0 && (
               <div className="flex justify-between items-baseline">
-                <span className="text-sm text-muted-foreground">Материалы</span>
+                <span className="text-sm text-muted-foreground">{objectType === "house" ? "Материалы (коробка)" : "Материалы"}</span>
                 <span className="text-sm font-medium">{formatPrice(calc.materialTotal)}</span>
+              </div>
+            )}
+            {calc.renovationWorkTotal > 0 && (
+              <div className="flex justify-between items-baseline">
+                <span className="text-sm text-muted-foreground">Работы (ремонт)</span>
+                <span className="text-sm font-medium">{formatPrice(calc.renovationWorkTotal)}</span>
+              </div>
+            )}
+            {calc.interiorMaterialTotal > 0 && (
+              <div className="flex justify-between items-baseline">
+                <span className="text-sm text-muted-foreground">Материалы (интерьер)</span>
+                <span className="text-sm font-medium">{formatPrice(calc.interiorMaterialTotal)}</span>
               </div>
             )}
           </>
@@ -631,7 +652,158 @@ const Calculator = () => {
                         )}
                       </div>
 
-                      {(workCost > 0 || materialCost > 0) && (
+                      {/* Additional sliders for house: renovation work + interior materials */}
+                      {objectType === "house" && (
+                        <>
+                          {/* Renovation work slider */}
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-baseline">
+                              <span className="text-sm font-medium">{WORK_COSTS.renovation.label}</span>
+                              <span className="text-sm font-medium">{formatPriceShort(renovationWorkCost)} ₽/м²</span>
+                            </div>
+                            <div className="relative mt-2">
+                              <svg viewBox="0 0 300 80" className="w-full h-20" preserveAspectRatio="none">
+                                <defs>
+                                  <linearGradient id="bellGradientRenWork" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.06" />
+                                    <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.01" />
+                                  </linearGradient>
+                                  <linearGradient id="bellGradientRenWorkActive" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.12" />
+                                    <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.02" />
+                                  </linearGradient>
+                                </defs>
+                                {(() => {
+                                  const cfg = WORK_COSTS.renovation;
+                                  const { min, max, mean, stdDev } = cfg;
+                                  const h = 70, pad = 5, w = 300;
+                                  const pts: [number, number][] = [];
+                                  for (let i = 0; i <= w; i++) {
+                                    const value = min + (i / w) * (max - min);
+                                    const z = (value - mean) / stdDev;
+                                    pts.push([i, pad + h - Math.exp(-0.5 * z * z) * h]);
+                                  }
+                                  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
+                                  const fillPath = `M0,${pad + h} ${pts.map(p => `L${p[0]},${p[1]}`).join(' ')} L${w},${pad + h} Z`;
+                                  const regionLeft = Math.max(0, ((mean - stdDev * 0.67) - min) / (max - min) * w);
+                                  const regionRight = Math.min(w, ((mean + stdDev * 0.67) - min) / (max - min) * w);
+                                  const regionPts = pts.filter(p => p[0] >= regionLeft && p[0] <= regionRight);
+                                  const regionFill = regionPts.length > 0 ? `M${regionLeft},${pad + h} ${regionPts.map(p => `L${p[0]},${p[1]}`).join(' ')} L${regionRight},${pad + h} Z` : '';
+                                  const indicatorX = renovationWorkCost > 0 ? ((renovationWorkCost - min) / (max - min)) * w : -10;
+                                  const meanX = ((mean - min) / (max - min)) * w;
+                                  return (
+                                    <>
+                                      <path d={fillPath} fill="url(#bellGradientRenWork)" />
+                                      {regionFill && <path d={regionFill} fill="url(#bellGradientRenWorkActive)" />}
+                                      <path d={linePath} fill="none" stroke="hsl(var(--foreground))" strokeWidth="1" opacity="0.2" />
+                                      <line x1={meanX} y1={pad} x2={meanX} y2={pad + h} stroke="hsl(var(--muted-foreground))" strokeWidth="0.7" strokeDasharray="4 3" opacity="0.5" />
+                                      {renovationWorkCost > 0 && (
+                                        <>
+                                          <line x1={indicatorX} y1={0} x2={indicatorX} y2={pad + h} stroke="hsl(var(--foreground))" strokeWidth="1.5" />
+                                          <circle cx={indicatorX} cy={pad + h - Math.exp(-0.5 * ((renovationWorkCost - mean) / stdDev) ** 2) * h} r="3" fill="hsl(var(--foreground))" />
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </svg>
+                              <div className="flex justify-between items-start mt-[-4px]">
+                                <span className="text-[10px] text-muted-foreground/60">бюджетный</span>
+                                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((WORK_COSTS.renovation.mean - WORK_COSTS.renovation.min) / (WORK_COSTS.renovation.max - WORK_COSTS.renovation.min)) * 100}%`, transform: 'translateX(-50%)' }}>
+                                  <Link to="/market-research" className="text-[10px] text-muted-foreground font-medium underline underline-offset-2 hover:text-foreground transition-colors">медиана рынка</Link>
+                                  <span className="text-[10px] text-muted-foreground/70">{formatPriceShort(WORK_COSTS.renovation.mean)} ₽</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground/60">премиум</span>
+                              </div>
+                            </div>
+                            <Slider value={[renovationWorkCost]} onValueChange={(v) => setRenovationWorkCost(v[0])} min={WORK_COSTS.renovation.min} max={WORK_COSTS.renovation.max} step={1000} className="w-full" />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>{formatPriceShort(WORK_COSTS.renovation.min)} ₽/м²</span>
+                              <span>{formatPriceShort(WORK_COSTS.renovation.max)} ₽/м²</span>
+                            </div>
+                            {renovationWorkCost > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                Итого за {area} м²: <span className="font-medium text-foreground">{formatPrice(area * renovationWorkCost)}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Interior materials slider */}
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-baseline">
+                              <span className="text-sm font-medium">Материалы — {MATERIAL_COSTS.residential.label}</span>
+                              <span className="text-sm font-medium">{formatPriceShort(interiorMaterialCost)} ₽/м²</span>
+                            </div>
+                            <div className="relative mt-2">
+                              <svg viewBox="0 0 300 80" className="w-full h-20" preserveAspectRatio="none">
+                                <defs>
+                                  <linearGradient id="bellGradientIntMat" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.06" />
+                                    <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.01" />
+                                  </linearGradient>
+                                  <linearGradient id="bellGradientIntMatActive" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.12" />
+                                    <stop offset="100%" stopColor="hsl(var(--muted-foreground))" stopOpacity="0.02" />
+                                  </linearGradient>
+                                </defs>
+                                {(() => {
+                                  const cfg = MATERIAL_COSTS.residential;
+                                  const { min, max, mean, stdDev } = cfg;
+                                  const h = 70, pad = 5, w = 300;
+                                  const pts: [number, number][] = [];
+                                  for (let i = 0; i <= w; i++) {
+                                    const value = min + (i / w) * (max - min);
+                                    const z = (value - mean) / stdDev;
+                                    pts.push([i, pad + h - Math.exp(-0.5 * z * z) * h]);
+                                  }
+                                  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
+                                  const fillPath = `M0,${pad + h} ${pts.map(p => `L${p[0]},${p[1]}`).join(' ')} L${w},${pad + h} Z`;
+                                  const regionLeft = Math.max(0, ((mean - stdDev * 0.67) - min) / (max - min) * w);
+                                  const regionRight = Math.min(w, ((mean + stdDev * 0.67) - min) / (max - min) * w);
+                                  const regionPts = pts.filter(p => p[0] >= regionLeft && p[0] <= regionRight);
+                                  const regionFill = regionPts.length > 0 ? `M${regionLeft},${pad + h} ${regionPts.map(p => `L${p[0]},${p[1]}`).join(' ')} L${regionRight},${pad + h} Z` : '';
+                                  const indicatorX = interiorMaterialCost > 0 ? ((interiorMaterialCost - min) / (max - min)) * w : -10;
+                                  const meanX = ((mean - min) / (max - min)) * w;
+                                  return (
+                                    <>
+                                      <path d={fillPath} fill="url(#bellGradientIntMat)" />
+                                      {regionFill && <path d={regionFill} fill="url(#bellGradientIntMatActive)" />}
+                                      <path d={linePath} fill="none" stroke="hsl(var(--foreground))" strokeWidth="1" opacity="0.2" />
+                                      <line x1={meanX} y1={pad} x2={meanX} y2={pad + h} stroke="hsl(var(--muted-foreground))" strokeWidth="0.7" strokeDasharray="4 3" opacity="0.5" />
+                                      {interiorMaterialCost > 0 && (
+                                        <>
+                                          <line x1={indicatorX} y1={0} x2={indicatorX} y2={pad + h} stroke="hsl(var(--foreground))" strokeWidth="1.5" />
+                                          <circle cx={indicatorX} cy={pad + h - Math.exp(-0.5 * ((interiorMaterialCost - mean) / stdDev) ** 2) * h} r="3" fill="hsl(var(--foreground))" />
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </svg>
+                              <div className="flex justify-between items-start mt-[-4px]">
+                                <span className="text-[10px] text-muted-foreground/60">бюджетный</span>
+                                <div className="flex flex-col items-center" style={{ position: 'absolute', left: `${((MATERIAL_COSTS.residential.mean - MATERIAL_COSTS.residential.min) / (MATERIAL_COSTS.residential.max - MATERIAL_COSTS.residential.min)) * 100}%`, transform: 'translateX(-50%)' }}>
+                                  <Link to="/market-research" className="text-[10px] text-muted-foreground font-medium underline underline-offset-2 hover:text-foreground transition-colors">медиана рынка</Link>
+                                  <span className="text-[10px] text-muted-foreground/70">{formatPriceShort(MATERIAL_COSTS.residential.mean)} ₽</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground/60">премиум</span>
+                              </div>
+                            </div>
+                            <Slider value={[interiorMaterialCost]} onValueChange={(v) => setInteriorMaterialCost(v[0])} min={MATERIAL_COSTS.residential.min} max={MATERIAL_COSTS.residential.max} step={1000} className="w-full" />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>{formatPriceShort(MATERIAL_COSTS.residential.min)} ₽/м²</span>
+                              <span>{formatPriceShort(MATERIAL_COSTS.residential.max)} ₽/м²</span>
+                            </div>
+                            {interiorMaterialCost > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                Итого за {area} м²: <span className="font-medium text-foreground">{formatPrice(area * interiorMaterialCost)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {(workCost > 0 || materialCost > 0 || renovationWorkCost > 0 || interiorMaterialCost > 0) && (
                         <div className="bg-muted p-4 rounded-sm space-y-1">
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Бюджет реализации</span>
